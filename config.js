@@ -4,7 +4,7 @@ window.APP_CONFIG = {
   firebase: {
     apiKey: "AIzaSyAE-RJ0CU_BmfshkGShEJYLI6tQuxLEGtg",
     authDomain: "kaduki10sec.firebaseapp.com",
-    databaseURL: "https://console.firebase.google.com/project/kaduki10sec/database/kaduki10sec-default-rtdb/data/~2F",
+    databaseURL: "https://kaduki10sec-default-rtdb.asia-southeast1.firebasedatabase.app",
     projectId: "998256790342",
     appId: "1:998256790342:web:9128e28b71011e52ea7347"
   },
