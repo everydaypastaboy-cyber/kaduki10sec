@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>10秒チャレンジ ランキング</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@400;700;900&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="eyebrow" id="eventName" hidden></span>
+      <div class="brand-row">
+        <h1><b id="target">10.00</b>秒チャレンジ</h1>
+        <span class="live" id="live"><i></i><span id="liveText">接続中</span></span>
+      </div>
+    </div>
+    <div class="tools">
+      <span id="demoBadge" class="demo-badge" hidden>デモモード</span>
+      <button class="ghost" id="fsBtn" type="button">全画面</button>
+    </div>
+  </header>
+
+  <div class="board">
+    <main class="main-col">
+      <div class="podium" id="podium"></div>
+      <div id="emptyNote" class="empty-note" hidden>まだ記録がありません。最初の挑戦者がここに表示されます。</div>
+      <div class="list" id="list"></div>
+      <p class="note" id="rule"></p>
+    </main>
+
+    <aside class="side">
+      <div class="card qr-card" id="qrCard">
+        <h2>スマホでも見られます</h2>
+        <div class="qr" id="qr"></div>
+        <div class="qr-url" id="qrUrl"></div>
+      </div>
+      <div class="card latest" id="latestCard" hidden>
+        <h2>さっきの挑戦</h2>
+        <div class="nm" id="lName"></div>
+        <div class="tm" id="lTime"></div>
+        <div class="meta" id="lMeta"></div>
+      </div>
+      <div class="card">
+        <h2>これまでの記録</h2>
+        <div class="stats">
+          <div class="stat"><span>挑戦者</span><strong id="sCount">0</strong></div>
+          <div class="stat"><span>ピッタリ</span><strong id="sPerfect" class="led">0</strong></div>
+          <div class="stat wide"><span>平均の誤差</span><strong id="sAvg">—</strong></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="common.js"></script>
+<script>
+(async function () {
+  const { C, Store, rank, fmt, fmtDiff, timeEl } = TSC;
+  const $ = id => document.getElementById(id);
+
+  // ---------- 見出しまわり ----------
+  $("target").textContent = C.target.toFixed(2);
+  document.title = C.target + "秒チャレンジ ランキング";
+  if (C.eventName) { $("eventName").textContent = C.eventName; $("eventName").hidden = false; }
+  if (Store.mode === "demo") $("demoBadge").hidden = false;
+  $("rule").textContent = `${C.target.toFixed(2)}秒との差が小さい順。同じ差なら先に挑戦した人が上位です。`;
+
+  // ---------- QRコード（このページのURL） ----------
+  const qrUrl = C.qrUrl || (location.protocol.startsWith("http") ? location.href.split(/[?#]/)[0] : "");
+  if (qrUrl && typeof QRCode !== "undefined") {
+    new QRCode($("qr"), { text: qrUrl, width: 200, height: 200, colorDark: "#0d1626", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M });
+    $("qrUrl").textContent = qrUrl.replace(/^https?:\/\//, "");
+  } else {
+    $("qrCard").hidden = true;   // ローカルで開いているときはQRを出さない
+  }
+
+  // ---------- 全画面 ＋ スリープ防止 ----------
+  $("fsBtn").onclick = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch (e) {}
+    try { await navigator.wakeLock?.request("screen"); } catch (e) {}
+  };
+
+  // ---------- 描画 ----------
+  let records = [], flashId = null, firstLoad = true;
+  const known = new Set();
+
+  function cell(cls, content) {
+    const el = document.createElement("div");
+    el.className = cls;
+    if (typeof content === "string") el.textContent = content; else el.append(content);
+    return el;
+  }
+
+  function render() {
+    const r = rank(records);
+    $("emptyNote").hidden = r.length > 0;
+
+    // 表彰台
+    const pod = $("podium"); pod.textContent = "";
+    ["1st", "2nd", "3rd"].forEach((label, i) => {
+      const x = r[i];
+      const el = document.createElement("div");
+      el.className = "pod p" + (i + 1) + (x ? "" : " empty") + (x && x.id === flashId ? " flash" : "");
+      el.append(
+        cell("rk", x && x.rank !== i + 1 ? `同着 ${x.rank}位` : label),
+        cell("nm", x ? x.name : "挑戦者募集中"),
+        x ? cell("tm", timeEl(x.ms)) : cell("tm", "--.--"),
+        cell("df", x ? fmtDiff(x.d) : " ")
+      );
+      pod.append(el);
+    });
+
+    // 4位以降
+    const list = $("list"); list.textContent = "";
+    r.slice(3, C.boardSize).forEach(x => {
+      const row = document.createElement("div");
+      row.className = "row" + (x.id === flashId ? " flash" : "");
+      const a = document.createElement("span"); a.className = "r"; a.textContent = x.rank;
+      const b = document.createElement("span"); b.className = "n"; b.textContent = x.name;
+      const d = document.createElement("span"); d.className = "d"; d.textContent = fmtDiff(x.d);
+      row.append(a, b, timeEl(x.ms, "t"), d);
+      list.append(row);
+    });
+
+    // 集計
+    $("sCount").textContent = r.length;
+    $("sPerfect").textContent = r.filter(x => x.d === 0).length;
+    $("sAvg").textContent = r.length ? "±" + (r.reduce((s, x) => s + x.d, 0) / r.length / 1000).toFixed(C.digits) : "—";
+
+    // さっきの挑戦
+    const last = r.reduce((m, x) => (!m || x.at > m.at ? x : m), null);
+    $("latestCard").hidden = !last;
+    if (last) {
+      $("lName").textContent = last.name;
+      $("lTime").textContent = ""; $("lTime").append(timeEl(last.ms));
+      $("lMeta").textContent = `${fmtDiff(last.d)}　${last.rank}位 / ${r.length}人`;
+    }
+  }
+
+  function setLive(on) {
+    $("live").classList.toggle("on", on);
+    $("liveText").textContent = on ? "LIVE" : "再接続中…";
+  }
+
+  // ---------- データ接続 ----------
+  render();
+  try {
+    await Store.init();
+  } catch (e) {
+    $("liveText").textContent = "読み込めませんでした。ページを開き直してください";
+    return;
+  }
+  Store.subscribe(data => {
+    records = data;
+    // 新しく入った記録を光らせる（最初の読み込みは除く）
+    if (!firstLoad) {
+      const fresh = data.filter(x => !known.has(x.id)).sort((a, b) => b.at - a.at)[0];
+      if (fresh) {
+        flashId = fresh.id;
+        setTimeout(() => { if (flashId === fresh.id) { flashId = null; render(); } }, 2600);
+      }
+    }
+    data.forEach(x => known.add(x.id));
+    firstLoad = false;
+    render();
+  }, setLive);
+
+  // スマホでタブを閉じずに放置した人の接続を切って、同時接続数を節約
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) Store.pause(); else Store.resume();
+  });
+})();
+</script>
+</body>
+</html>
