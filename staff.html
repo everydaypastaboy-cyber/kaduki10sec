@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>10秒チャレンジ 受付</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@400;700;900&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="eyebrow">受付・計測</span>
+      <div class="brand-row">
+        <h1><b id="target">10.00</b>秒チャレンジ</h1>
+        <span class="live" id="live"><i></i><span id="liveText">接続中</span></span>
+      </div>
+    </div>
+    <div class="tools">
+      <span id="demoBadge" class="demo-badge" hidden>デモモード</span>
+      <a class="ghost" href="index.html" target="_blank" rel="noopener">ランキング</a>
+      <a class="ghost" href="stats.html" target="_blank" rel="noopener">集計</a>
+      <button class="ghost" id="logoutBtn" type="button" hidden>ログアウト</button>
+    </div>
+  </header>
+
+  <!-- ログイン -->
+  <section class="card login" id="loginCard" hidden>
+    <h2>受付用アカウントでログイン</h2>
+    <form id="loginForm">
+      <label class="f" for="email">メールアドレス
+        <input class="inp" id="email" type="email" autocomplete="username" required>
+      </label>
+      <label class="f" for="pw">パスワード
+        <input class="inp" id="pw" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="big" id="loginBtn" type="submit">ログイン</button>
+      <div class="msg" id="loginMsg" role="status"></div>
+    </form>
+  </section>
+
+  <!-- 計測・登録 -->
+  <main class="entry" id="entry" hidden>
+    <div class="card">
+      <h2>ストップウォッチ</h2>
+      <div class="watch">
+        <div class="disp" id="disp">0.000</div>
+        <div class="hint" id="hint"></div>
+      </div>
+      <button class="big" id="swBtn" type="button">スタート</button>
+      <div class="opts">
+        <label for="blindSec">数字を隠すまで</label>
+        <input type="number" id="blindSec" min="0" max="9" step="1"><span>秒</span>
+      </div>
+      <p class="note" id="keyNote"></p>
+    </div>
+
+    <div class="card">
+      <h2>記録を登録</h2>
+      <form id="form">
+        <label class="f" for="time">タイム（ストップウォッチの結果・変更できません）
+          <input class="inp time" id="time" readonly tabindex="-1" placeholder="まだ計測していません">
+        </label>
+        <label class="f" for="name">名前（ニックネーム可・16文字まで）
+          <input class="inp" id="name" maxlength="16" autocomplete="off" placeholder="例: やまぐち太郎">
+        </label>
+        <label class="check" for="anon">
+          <input type="checkbox" id="anon">
+          <span>ランキングに名前を出さない<small id="anonHint"></small></span>
+        </label>
+        <button class="big" id="submitBtn" type="submit" disabled>登録する</button>
+        <div class="msg" id="msg" role="status"></div>
+      </form>
+      <div class="uid" id="uid"></div>
+    </div>
+
+    <!-- 記録の管理（削除） -->
+    <section class="card manage">
+      <div class="manage-head">
+        <h2>記録の管理</h2>
+        <div class="seg" id="mTabs" role="tablist" aria-label="並び順">
+          <button type="button" role="tab" data-v="recent" aria-selected="true">新しい順</button>
+          <button type="button" role="tab" data-v="rank" aria-selected="false">順位順</button>
+        </div>
+        <label class="sr" for="q">名前で探す</label>
+        <input class="inp search" id="q" type="search" autocomplete="off" placeholder="名前で探す">
+      </div>
+      <div class="recent" id="recent"></div>
+      <p class="note" id="listNote"></p>
+      <div class="danger">
+        <button type="button" class="del" id="wipeBtn">全記録を削除</button>
+        <span class="note">テストで入れた記録を本番前に消すときに使います。元に戻せません。</span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+(async function () {
+  const { C, TARGET, ANON_NAME, Store, rank, fmt, fmtDiff, quantize, diffOf } = TSC;
+  const $ = id => document.getElementById(id);
+  const ZERO = (0).toFixed(C.digits);
+  let measuredMs = null;   // ストップウォッチで計ったタイム。登録にはこれだけを使う（手入力はできない）
+
+  // ---------- 初期表示 ----------
+  $("target").textContent = C.target.toFixed(2);
+  $("disp").textContent = ZERO;
+  $("blindSec").value = C.blindSec;
+  $("anonHint").textContent = `「${ANON_NAME}」と表示されます。名前を入れた場合は受付だけが見られます`;
+  if (Store.mode === "demo") $("demoBadge").hidden = false;
+  $("keyNote").textContent = "";
+  $("keyNote").append("外部ボタン: ");
+  C.triggerKeys.forEach(k => { const s = document.createElement("span"); s.className = "kbd"; s.textContent = k; $("keyNote").append(s, " "); });
+  $("keyNote").append("（どこにカーソルがあっても反応）／ 入力欄の外では ");
+  const sp = document.createElement("span"); sp.className = "kbd"; sp.textContent = "Space"; $("keyNote").append(sp, " でも操作できます");
+
+  // 匿名にしたら名前は任意にする
+  $("anon").addEventListener("change", () => {
+    $("name").placeholder = $("anon").checked ? "任意（景品の連絡などに使います）" : "例: やまぐち太郎";
+  });
+
+  // ---------- 接続とログイン ----------
+  try {
+    await Store.init({ auth: true });
+  } catch (e) {
+    $("liveText").textContent = "読み込めませんでした。ページを開き直してください";
+    return;
+  }
+
+  let records = [];
+  let privateNames = {};
+  let subscribed = false;
+  Store.onAuth(user => {
+    const inn = !!user;
+    $("loginCard").hidden = inn;
+    $("entry").hidden = !inn;
+    $("logoutBtn").hidden = !inn || Store.mode === "demo";
+    $("uid").textContent = inn && Store.mode === "firebase" ? "ログイン中: " + (user.email || "") + "　UID: " + user.uid : "";
+    if (inn && !subscribed) {
+      subscribed = true;
+      Store.subscribe(data => { records = data; renderRecent(); }, on => {
+        $("live").classList.toggle("on", on);
+        $("liveText").textContent = on ? "LIVE" : "再接続中…";
+      });
+      // 匿名の人の本名（受付だけが読める）
+      Store.subscribePrivate(p => { privateNames = p || {}; renderRecent(); });
+      resetWatch();
+    }
+    if (!inn) $("liveText").textContent = "ログインしてください";
+  });
+
+  $("loginForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    $("loginBtn").disabled = true;
+    $("loginMsg").className = "msg"; $("loginMsg").textContent = "";
+    try {
+      await Store.signIn($("email").value.trim(), $("pw").value);
+    } catch (err) {
+      $("loginMsg").className = "msg err";
+      $("loginMsg").textContent = "ログインできませんでした。メールアドレスとパスワードを確認してください。";
+    } finally { $("loginBtn").disabled = false; }
+  });
+  $("logoutBtn").onclick = () => Store.signOut();
+
+  // ---------- ストップウォッチ ----------
+  // ボタン・キーの「押した瞬間」の時刻（event.timeStamp）で計るので、画面の描画の遅れは入らない
+  let running = false, t0 = 0, raf = 0;
+  let lastTrigger = -Infinity;      // 直前にスタート/ストップした時刻
+  const MIN_GAP = 500;              // この間隔（ミリ秒）より短い2回目の入力は無視する
+  const held = new Set();           // 今押されっぱなしのキー
+
+  function tick() {
+    const sec = (performance.now() - t0) / 1000;
+    const blind = Number($("blindSec").value) || 0;
+    if (sec < blind) { $("disp").textContent = sec.toFixed(C.digits); $("disp").classList.remove("blind"); }
+    else { $("disp").textContent = "??." + "?".repeat(C.digits); $("disp").classList.add("blind"); }
+    raf = requestAnimationFrame(tick);
+  }
+
+  // 計測結果をフォームに反映（null で空に戻す）
+  function setMeasured(ms) {
+    measuredMs = ms;
+    $("time").value = ms === null ? "" : fmt(ms);
+    $("submitBtn").disabled = ms === null;
+  }
+
+  function trigger(ts) {
+    if ($("entry").hidden) return;
+    // ブラウザによってはイベントの時刻が別の基準で届くことがあるので、ずれていたら今の時刻を使う
+    const now = performance.now();
+    if (!Number.isFinite(ts) || Math.abs(ts - now) > 1000) ts = now;
+    // 1回の押下で入力が2回届いても、すぐ止まらないようにする
+    if (ts - lastTrigger < MIN_GAP) return;
+    lastTrigger = ts;
+    if (!running) {
+      running = true; t0 = ts;
+      setMeasured(null);   // 計り直しのときは前のタイムを消す
+      $("swBtn").textContent = "ストップ"; $("swBtn").classList.add("stop");
+      $("hint").className = "hint"; $("hint").textContent = C.target + "秒だと思ったら止める";
+      tick();
+    } else {
+      running = false; cancelAnimationFrame(raf);
+      const ms = quantize(ts - t0);
+      $("disp").textContent = fmt(ms); $("disp").classList.remove("blind");
+      const d = diffOf(ms);
+      $("hint").className = "hint" + (d === 0 ? " good" : "");
+      $("hint").textContent = d === 0 ? "ピッタリ！" : (ms < TARGET ? "早すぎ " : "遅すぎ ") + fmtDiff(d);
+      setMeasured(ms);
+      $("swBtn").textContent = "もう一度"; $("swBtn").classList.remove("stop");
+      $("name").focus();
+    }
+  }
+
+  function resetWatch() {
+    running = false; cancelAnimationFrame(raf);
+    setMeasured(null);
+    $("disp").textContent = ZERO; $("disp").classList.remove("blind");
+    $("hint").className = "hint"; $("hint").textContent = "スタートを押す（外部ボタンでもOK）";
+    $("swBtn").textContent = "スタート"; $("swBtn").classList.remove("stop");
+  }
+
+  // 押した瞬間に反応させるため click ではなく pointerdown を使う
+  $("swBtn").addEventListener("pointerdown", e => { e.preventDefault(); trigger(e.timeStamp); });
+
+  // キーを離したら「押しっぱなし」を解除
+  document.addEventListener("keyup", e => { held.delete(e.code || e.key); });
+  window.addEventListener("blur", () => held.clear());
+
+  document.addEventListener("keydown", e => {
+    // 押しっぱなしで繰り返し届く入力は無視（repeat が付かない環境もあるので自前でも判定）
+    const k = e.code || e.key;
+    const isTrigger = C.triggerKeys.includes(e.key) || C.triggerKeys.includes(e.code);
+    if (e.repeat || held.has(k)) {
+      if (isTrigger) e.preventDefault();
+      return;
+    }
+    if (isTrigger || e.code === "Space") held.add(k);
+    // 外部ボタン用のキー：どこにフォーカスがあっても反応
+    if (isTrigger) { e.preventDefault(); trigger(e.timeStamp); return; }
+    // スペース：入力欄や他のボタン・チェックボックスにいるときは普通の動作のまま
+    if (e.code === "Space") {
+      const t = e.target;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
+      if (t.tagName === "BUTTON" && t.id !== "swBtn") return;
+      e.preventDefault(); trigger(e.timeStamp);
+    }
+  });
+
+  // ---------- 登録 ----------
+  function showMsg(text, kind) { $("msg").textContent = text; $("msg").className = "msg " + (kind || ""); }
+
+  $("form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const anon = $("anon").checked;
+    const name = $("name").value.trim().slice(0, 16);
+    const ms = measuredMs;
+    if (ms === null || running) { showMsg("先にストップウォッチで計ってください。", "err"); return; }
+    if (!name && !anon) { showMsg("名前を入れるか、「ランキングに名前を出さない」にチェックしてください。", "err"); $("name").focus(); return; }
+    $("submitBtn").disabled = true;
+    // 登録前の記録から順位を出しておく（差が同じ人とは同順位）
+    const d = diffOf(ms);
+    const pos = records.filter(x => x.d < d).length + 1;
+    try {
+      await Store.add(name, ms, anon);
+      showMsg(`${anon ? ANON_NAME : name + " さん"} ${fmt(ms)}秒を登録しました（いま ${pos}位）`, "ok");
+      $("name").value = ""; $("anon").checked = false;
+      $("name").placeholder = "例: やまぐち太郎";
+      resetWatch();
+      $("name").blur();
+    } catch (err) {
+      $("submitBtn").disabled = false;
+      const denied = /PERMISSION_DENIED/i.test(String(err && (err.code || err.message)));
+      showMsg(denied
+        ? "登録の権限がありません。Firebaseのルールを最新のものに更新したか、下のUIDがルールと同じか確認してください。"
+        : "登録できませんでした。通信状態を確認して、もう一度押してください。", "err");
+    }
+  });
+
+  // ---------- 記録の管理（並び替え・検索・削除） ----------
+  const MAX_ROWS = 200;            // 一度に表示する最大件数
+  let listView = "recent";         // "recent"（新しい順） or "rank"（順位順）
+  const WHEN = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  // 1回目で確認状態にし、3秒以内にもう1回押すと実行するボタン
+  function armButton(btn, label, armedLabel, action) {
+    let timer = null;
+    btn.textContent = label;
+    btn.onclick = async () => {
+      if (!btn.classList.contains("arm")) {
+        btn.classList.add("arm"); btn.textContent = armedLabel();
+        timer = setTimeout(() => { btn.classList.remove("arm"); btn.textContent = label; }, 3000);
+        return;
+      }
+      clearTimeout(timer); btn.disabled = true;
+      try { await action(); }
+      catch (e) { showMsg("削除できませんでした。通信状態を確認して、もう一度押してください。", "err"); }
+      finally { btn.disabled = false; btn.classList.remove("arm"); btn.textContent = label; }
+    };
+  }
+
+  // 表示名（匿名の人は受付画面にだけ本名をかっこ書きで出す）
+  function staffName(x) {
+    const real = x.anon && privateNames[x.id] && privateNames[x.id].name;
+    return x.anon ? `${ANON_NAME}${real ? "（" + real + "）" : ""}` : x.name;
+  }
+
+  function renderRecent() {
+    const box = $("recent"); box.textContent = "";
+    const ranked = rank(records);                       // 総合順位を付けたもの
+    let list = listView === "rank" ? ranked : [...ranked].sort((a, b) => b.at - a.at);
+    const q = $("q").value.trim().toLowerCase();
+    if (q) list = list.filter(x => staffName(x).toLowerCase().includes(q));
+
+    $("listNote").textContent = list.length > MAX_ROWS
+      ? `${list.length}件中 ${MAX_ROWS}件を表示しています。名前で探すと絞り込めます。`
+      : list.length ? `${list.length}件` : "";
+    if (!list.length) {
+      const s = document.createElement("span"); s.className = "note";
+      s.textContent = records.length ? "見つかりませんでした" : "まだありません";
+      box.append(s);
+    }
+
+    list.slice(0, MAX_ROWS).forEach(x => {
+      const it = document.createElement("div"); it.className = "it m";
+      const r = document.createElement("span"); r.className = "r"; r.textContent = x.rank + "位";
+      const n = document.createElement("span"); n.className = "n"; n.textContent = staffName(x);
+      const t = document.createElement("span"); t.className = "t"; t.textContent = fmt(x.ms);
+      const w = document.createElement("span"); w.className = "w"; w.textContent = x.at ? WHEN.format(new Date(x.at)) : "";
+      const del = document.createElement("button"); del.type = "button"; del.className = "del";
+      armButton(del, "削除", () => "本当に消す", () => Store.remove(x.id));
+      it.append(r, n, t, w, del);
+      box.append(it);
+    });
+  }
+
+  // 並び順の切り替えと検索
+  document.querySelectorAll("#mTabs button").forEach(b => {
+    b.onclick = () => {
+      listView = b.dataset.v;
+      document.querySelectorAll("#mTabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+      renderRecent();
+    };
+  });
+  $("q").addEventListener("input", renderRecent);
+
+  // 全記録の削除（テスト記録の掃除用）
+  armButton($("wipeBtn"), "全記録を削除", () => `本当に全${records.length}件を消す`, async () => {
+    await Store.removeAll();
+    showMsg("全記録を削除しました。", "ok");
+  });
+})();
+</script>
+</body>
+</html>
